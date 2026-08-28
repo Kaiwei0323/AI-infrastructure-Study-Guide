@@ -51,6 +51,11 @@ VLLM backend (Single node)
             - Optimized: only save the max value, space complexity O(1)
         4. Partition long context and hand to multiple thread block to parallel process and then aggregate to softmax
         5. Prefill leverage FlashAttention kernel
+            - FlashAttention:
+                - Tilling: split QKV into small piece and load to SRAM to compute
+                1. S = Q Kᵀ
+                2. P = softmax(S)
+                3. O = P V   
      
     - Prefix caching
         - If a request comes in, the system will assign the block to the request
@@ -90,10 +95,58 @@ VLLM backend (Single node)
     - VRAM -> System RAM -> NVMe -> S3
     - Use timing: recompute is expensive (Big model or RAG (long prompt))
     - Each tier keep their own LRU DDL
-- FlashAttention
 - Continuous batching
+    - Request (Computed token, Total token need to be computed)
+    - 2 queue (one waiting queue, one running queue)
+    - dynamic control (max request num & token budget)
+    - set a long prefill token threshold -> split long token on prefill to small piece to prevent a long prefill token preemptye other decode
 - Discrete Prefill & decode
+    - Prefill: Compute intensive
+    - Decode: Memory intensive
+    - Use Bridge to transfer KV cache between P/D
+        - NVLink
+        - RDMA
+        - NXIL + TCP fallback 
 - Tensor parrallelism
--
+    - Shard a model and put model on multiple GPU
+
+- LLM-D (Routing)
+- EPP (Endpoint picker)
+    - Cache Affinity (x 0.4)
+        - Each pod will send out KV cache info by using ZMQ Publish
+        ```
+        KV Event Config
+        {
+            Publisher: "ZMQ",
+            Endpoint: "tcp://ip:port",
+            engineKeys: "Hash_by_vllm",
+            requestKeys: "Hash_by_llm-d",
+            Topic: "kv@<pod-ip>:<port>@model"
+        }
+        =>
+        Router will create Pod Entry map
+        {
+            engineKeys:  []BlockHash{e1, e2, e3},      
+            requestKeys: []BlockHash{r1, r2, r3},
+            entries: []PodEntry{
+                {PodIdentifier: "pod-A", DeviceTier: "gpu", Speculative: false},
+                {PodIdentifier: "pod-A", DeviceTier: "gpu", Speculative: false},
+                {PodIdentifier: "pod-A", DeviceTier: "gpu", Speculative: false},
+        }
+        ```
+        - Speculative:
+            - If two request come in concurrently and cache is not calculated, two requests might go to different pod and do duplicate calculation.
+            - Speculative will first store requestKeys and put NIL on engineKeys, after the pod finish calculation write back to podEntryMap
+            - If one request see NIL will wait for other request to finish calculation
+            - The NIL podEntry will be put in a TTL LRU cache. If did not be calculated in time will be removed.
+      - Pod Select Filter
+          - cache affinity > 0.8 -> saturated?
+              - workload = prefill throughput (token / s) x TTFT Penalty (Ms) = tokens to be deal with
+              - set a threshold if workload more than that consider to route to cold server cuz hot server is too hot    
+        
+    - System workload (x 0.3)
+    - Nework latency (x 0.2)
+    - Cache Availability (x 0.1) 
+
 
 
