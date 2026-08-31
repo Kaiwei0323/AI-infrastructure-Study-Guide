@@ -29,6 +29,26 @@
 | Bandwidth | 864 GB / s | 960 GB / s |
 | Memory | 48 GB | 48 GB |
 
+## Self Attention
+Why we need self Attention?
+Old model (RNN + Encoder / Decoder) drawback: Process token serially and the old context will be forgotted and the new context will have more weight.
+Training - output can be parallel processed
+Inference - output one at a time
+Encoding: Input -> Embedding -> Multi-head attention
+Input_embedding = text embedding + text position embedding (512 x 1)
+Multi-head attention: wQ + wK + wV (512 x 512)
+Q: Ask a question?
+K: Yes or No
+V: Actual meaning
+Attention(Q, K, V) = softmax(Q * K) * V
+
+Single head = Input_embedding (n x 512) * (wQ (512 x 512) + wK(512 x 512) + wV(512 x 512)) = n x 512, Attention(Q, K, V) = output
+Multi-head = Input_ebedding (n x 512) * 8 * (wQ(512 x 64) + wK(512 x 64) + wV(512 x 64)) = 8 x (n x 64) -> linear layer -> n x 512, Attention(Q, K, V) = output
+- make 8 x (QKV) is like feature extraction to make it more accurate
+
+Decoder: output -> embedding -> Masked multi-head attention -> multi-head attention -> softmax -> output
+
+
 ## Model Structure
 
 - Safetensors: model weights
