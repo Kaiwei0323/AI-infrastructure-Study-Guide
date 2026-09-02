@@ -23,7 +23,7 @@
 | Local memory | large/indexed local arrays (compiler spills automatically) | Off-chip (physically same as global) | 1 thread only | Slow | - |
 | Shared memory (SRAM) | `__shared__ float buf[N];` | On-chip (inside SM) | All threads in 1 block | Very fast | ~48–228 KB / SM |
 | Global memory (VRAM / HBM / GDDR) | `__device__ float x;` or `cudaMalloc()` pointers | Off-chip | All threads, all blocks, host | Slow (relatively) | GBs |
-| Constant memory | `__constant__ float x;` | Off-chip, cached on-chip | All threads, read-only | Fast if cached | 64 KB |
+| Constant memory | `__constant__ float x;` | Off-chip, cached on-chip | All threads, all blocks, host, read-only | Fast if cached | 64 KB |
 
 ## Measure a GPU
 
