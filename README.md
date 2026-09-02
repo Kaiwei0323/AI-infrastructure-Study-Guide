@@ -15,6 +15,16 @@
 
 - Bandwidth: 64 GBps -> too slow for GPU throughput -> GPU stays idle
 
+### GPU Memory Hierarchy
+
+| Memory type | CUDA syntax | Location | Scope | Speed | Size |
+| --- | --- | --- | --- | --- | --- |
+| Registers | plain local var, e.g. `float x;` | On-chip (inside SM) | 1 thread only | Fastest | ~255 regs/thread |
+| Local memory | large/indexed local arrays (compiler spills automatically) | Off-chip (physically same as global) | 1 thread only | Slow | - |
+| Shared memory (SRAM) | `__shared__ float buf[N];` | On-chip (inside SM) | All threads in 1 block | Very fast | ~48–228 KB / SM |
+| Global memory (VRAM / HBM / GDDR) | `__device__ float x;` or `cudaMalloc()` pointers | Off-chip | All threads, all blocks, host | Slow (relatively) | GBs |
+| Constant memory | `__constant__ float x;` | Off-chip, cached on-chip | All threads, read-only | Fast if cached | 64 KB |
+
 ## Measure a GPU
 
 - TFLOPS: Compute power -> Prefill: TTFT
@@ -108,10 +118,30 @@ Attention(Q, K, V) = softmax(Q Kᵀ / √d_k) V
 4. Partition long context and hand it to multiple thread blocks to process in parallel and then aggregate to softmax
 5. Prefill leverages FlashAttention kernel
     - FlashAttention:
-        - Tiling: split QKV into small pieces and load to SRAM to compute
+        - Tiling: split QKV into small pieces and load to SRAM to compute, Q (VRAM -> Register), KV (VRAM -> SRAM)
         1. `S = Q Kᵀ`
         2. `P = softmax(S)`
         3. `O = P V`
+```cuda-cpp
+__shared__ float Ks[BC][D_MAX];   // SRAM tile for K
+__shared__ float Vs[BC][D_MAX];   // SRAM tile for V
+
+// ---- Load K AND V tiles: VRAM -> SRAM ----
+for (int r = tid; r < kv_rows_this_tile; r += BR) {
+    for (int d = 0; d < head_dim; d++) {
+        Ks[r][d] = K[(kv_tile_start + r) * head_dim + d];  // VRAM -> SRAM
+        Vs[r][d] = V[(kv_tile_start + r) * head_dim + d];  // VRAM -> SRAM
+    }
+}
+__syncthreads();  // wait until the whole tile (K and V) is loaded before anyone reads it
+
+int row = q_tile_start + tid;   // each thread owns exactly one Q row for the whole kernel
+
+float q_row[D_MAX];             // plain array -> lives in registers (per-thread)
+for (int d = 0; d < head_dim; d++) {
+    q_row[d] = Q[row * head_dim + d];   // VRAM -> registers, happens ONCE
+}
+```
 
 #### Prefix caching
 
