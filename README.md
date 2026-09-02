@@ -249,6 +249,7 @@ Router will create Pod Entry map
     - workload = prefill throughput (token / s) x TTFT Penalty (Ms) = tokens to be dealt with
     - set a threshold; if workload is more than that, consider routing to a cold server because the hot server is too hot
     - affinityMaxTTFTPenaltyMs=5000ms
+    - XGBoost: Use regression model to predict pod workload
 
 - System workload (x 0.3)
 - Network latency (x 0.2)
