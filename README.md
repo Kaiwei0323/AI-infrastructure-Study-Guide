@@ -156,6 +156,11 @@ for (int d = 0; d < head_dim; d++) {
     - `BlockB_hash: Hash(BlockA_hash + BlockB)`
     - `BlockC_hash: Hash(BlockB_hash + BlockC)`
     - ...
+ - Prefix tree:
+    - `BlockB.parent = BlockA`
+    - `BlockC.parent = BlockB`
+    - `BlockD.parent = BlockC`
+    - ...
 - LRU eviction policy
 
 ```cpp
