@@ -89,6 +89,9 @@ Attention(Q, K, V) = softmax(Q Kᵀ / √d_k) V
 - Safetensors: model weights
 - Tokenizer: prompt -> token_ids
 - 8B (model size): 16 GB (2x the parameters)
+- MoE vs Non-MoE
+    - MoE: EP (Expert Parallelism)
+    - Non-MoE: TP (Tensor Parallelism)
 
 ## Model Metrics
 
