@@ -211,6 +211,70 @@ Only the node with `ref_cnt == 0` (not in use) will be stored in this DDL.
 
 ## LLM-D (Routing)
 
+### End-to-End Request Flow
+```text
+                         User / Client
+                              │
+                              │ HTTP / OpenAI API
+                              ▼
+                 ┌─────────────────────────┐
+                 │   Inference Gateway     │
+                 │         Envoy           │
+                 │                         │
+                 │ • Ingress               │
+                 │ • TLS / Auth            │
+                 │ • Request forwarding    │
+                 └────────────┬────────────┘
+                              │
+                              ▼
+                 ┌─────────────────────────┐
+                 │         llm-d            │
+                 │                          │
+                 │      Router + EPP        │
+                 │                          │
+                 │ • Endpoint selection     │
+                 │ • KV-cache awareness     │
+                 │ • Load / token scoring   │
+                 └────────────┬────────────┘
+                              │
+                    Request-level routing
+                              │
+                 ┌────────────┴────────────┐
+                 │                         │
+                 ▼                         ▼
+        ┌──────────────────┐      ┌──────────────────┐
+        │  Prefill Pool    │      │   Decode Pool    │
+        │                  │      │                  │
+        │   vLLM + EP      │      │    vLLM + EP     │
+        └────────┬─────────┘      └────────┬─────────┘
+                 │                         ▲
+                 │                         │
+                 │       KV Cache          │
+                 └────── Transfer ─────────┘
+                 │
+                 ▼
+        ┌──────────────────┐
+        │   vLLM Runtime   │
+        │                  │
+        │   MoE Router     │
+        └────────┬─────────┘
+                 │
+                 │ Token-level routing
+                 │ Top-K Expert Selection
+                 ▼
+          ┌──────┼──────┐
+          ▼      ▼      ▼
+        GPU 0  GPU 2   GPU 3
+       Expert 0 Expert 2 Expert 7
+          │      │      │
+          └──────┼──────┘
+                 │
+            EP / All-to-All
+                 │
+                 ▼
+          GPU / Network
+```
+
 ### EPP (Endpoint picker)
 
 #### Cache Affinity (x 0.4)
