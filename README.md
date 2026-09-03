@@ -326,3 +326,52 @@ Router will create Pod Entry map
 - System workload (x 0.3)
 - Network latency (x 0.2)
 - Cache Availability (x 0.1)
+
+### Optimize CUDA Kernel
+Element Wise
+- Stride: BlockDim.x * GridDim.x - Single thread can process more than one operation within bound.
+- Vectorize: float4* a1 = reinterpret_cast<float4*>(a); N / 4 - Single thread can process 4 data at once, reduce memory hit rate.
+```cpp
+__global__ void vector_add(const float* A, const float* B, float* C, int N) {
+
+    const float4* A4 = reinterpret_cast<const float4*>(A);
+    const float4* B4 = reinterpret_cast<const float4*>(B);
+    float4* C4 = reinterpret_cast<float4*>(C);
+
+    size_t idx = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t stride = blockDim.x * gridDim.x;
+
+    int N4 = N / 4;
+
+    for(size_t i = idx; i < N4; i += stride) {
+        float4 AV = A4[i];
+        float4 BV = B4[i];
+        float4 CV;
+        CV.x = AV.x + BV.x;
+        CV.y = AV.y + BV.y;
+        CV.z = AV.z + BV.z;
+        CV.w = AV.w + BV.w;
+        C4[i] = CV;
+    }
+    size_t remain = N4 * 4;
+    for(size_t i = remain + idx; i < N; i += stride) {
+        C[i] = A[i] + B[i];
+    }
+}
+```
+
+2D Matrix + Stride
+```cpp
+__global__ void matrix_add(const float* A, const float* B, float* C, int N) {
+    size_t row = blockDim.y * blockIdx.y + threadIdx.y;
+    size_t col = blockDim.x * blockIdx.x + threadIdx.x;
+    size_t stride_y = blockDim.y * gridDim.y;
+    size_t stride_x = blockDim.x * gridDim.x;
+    for(size_t r = row; r < N; r += stride_y) {
+        for(size_t c = col; c < N; c += stride_x) {
+            size_t idx = r * N + c;
+            C[idx] = A[idx] + B[idx];
+        }
+    }
+}
+```
