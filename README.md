@@ -441,5 +441,86 @@ extern "C" void solve(const float* A, const float* B, float* result, int N) {
 
 Softmax
 ```cpp
+#include <cuda_runtime.h>
+#include <cfloat>
 
+__device__ __forceinline__ void online_combine(float& m1, float& d1, float m2, float d2) {
+    float new_m = fmaxf(m1, m2);
+    d1 = d1 * expf(m1 - new_m) + d2 * expf(m2 - new_m);
+    m1 = new_m;
+}
+
+__device__ void warp_shfl(float& m, float& d) {
+    unsigned int mask = 0xffffffff;
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        float m2 = __shfl_down_sync(mask, m, offset);
+        float d2 = __shfl_down_sync(mask, d, offset);
+        online_combine(m, d, m2, d2);
+    }
+}
+
+template<unsigned int BlockSize>
+__global__ void softmax_kernel(const float* input, float* output, int N) {
+    __shared__ float sdata_m[BlockSize];
+    __shared__ float sdata_d[BlockSize];
+    __shared__ float s_m;
+    __shared__ float s_d;
+
+    int tid = threadIdx.x;
+    int idx = blockDim.x * blockIdx.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+
+    int N4 = N / 4;
+    const float4* input4 = reinterpret_cast<const float4*>(input);
+
+    float local_m = -FLT_MAX;
+    float local_d = 0.0f;
+
+    for (int i = idx; i < N4; i += stride) {
+        float4 val = input4[i];
+        online_combine(local_m, local_d, val.x, 1.0f);
+        online_combine(local_m, local_d, val.y, 1.0f);
+        online_combine(local_m, local_d, val.z, 1.0f);
+        online_combine(local_m, local_d, val.w, 1.0f);
+    }
+
+    int remain = N4 * 4;
+    for (int i = remain + idx; i < N; i += stride) {
+        online_combine(local_m, local_d, input[i], 1.0f);
+    }
+
+    sdata_m[tid] = local_m;
+    sdata_d[tid] = local_d;
+    __syncthreads();
+
+    if (BlockSize >= 1024) { if (tid < 512) online_combine(sdata_m[tid], sdata_d[tid], sdata_m[tid + 512], sdata_d[tid + 512]); __syncthreads(); }
+    if (BlockSize >= 512)  { if (tid < 256) online_combine(sdata_m[tid], sdata_d[tid], sdata_m[tid + 256], sdata_d[tid + 256]); __syncthreads(); }
+    if (BlockSize >= 256)  { if (tid < 128) online_combine(sdata_m[tid], sdata_d[tid], sdata_m[tid + 128], sdata_d[tid + 128]); __syncthreads(); }
+    if (BlockSize >= 128)  { if (tid < 64)  online_combine(sdata_m[tid], sdata_d[tid], sdata_m[tid + 64],  sdata_d[tid + 64]);  __syncthreads(); }
+
+    if (tid < 32) {
+        float m = sdata_m[tid];
+        float d = sdata_d[tid];
+        online_combine(m, d, sdata_m[tid + 32], sdata_d[tid + 32]);
+        warp_shfl(m, d);
+        if (tid == 0) {
+            s_m = m;
+            s_d = d;
+        }
+    }
+    __syncthreads();
+
+    for (int i = idx; i < N; i += stride) {
+        output[i] = expf(input[i] - s_m) / s_d;
+    }
+}
+
+// input, output are device pointers (i.e. pointers to memory on the GPU)
+extern "C" void solve(const float* input, float* output, int N) {
+    const int threadsPerBlock = 256;
+    const int blocksPerGrid = 1; // single block: reduction here is block-local, not cross-block
+
+    softmax_kernel<threadsPerBlock><<<blocksPerGrid, threadsPerBlock>>>(input, output, N);
+    cudaDeviceSynchronize();
+}
 ```
