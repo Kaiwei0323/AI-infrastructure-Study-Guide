@@ -375,3 +375,71 @@ __global__ void matrix_add(const float* A, const float* B, float* C, int N) {
     }
 }
 ```
+
+```cpp
+#include <cuda_runtime.h>
+
+#define THREADS_PER_BLOCK 1024
+
+// 用 shuffle 取代原本的 shared-memory warp_reduction
+__device__ float warp_reduce_shfl(float val) {
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        val += __shfl_down_sync(0xffffffff, val, offset);
+    }
+    return val;
+}
+
+template<unsigned int BlockSize>
+__global__ void dot_product(const float* A, const float* B, float* result, int N) {
+    const float4* A4 = reinterpret_cast<const float4*>(A);
+    const float4* B4 = reinterpret_cast<const float4*>(B);
+    __shared__ float sdata[BlockSize];
+
+    int tid = threadIdx.x;
+    int idx = blockDim.x * blockIdx.x + threadIdx.x;
+    int N4 = N / 4;
+    int stride = blockDim.x * gridDim.x;
+    float sum = 0.0f;
+
+    for (int i = idx; i < N4; i += stride) {
+        float4 valA = A4[i];
+        float4 valB = B4[i];
+        sum += valA.x * valB.x + valA.y * valB.y + valA.z * valB.z + valA.w * valB.w;
+    }
+
+    int remain = N4 * 4;
+    for (int i = remain + idx; i < N; i += stride) {
+        sum += A[i] * B[i];
+    }
+
+    sdata[tid] = sum;
+    __syncthreads();
+
+    // shared memory 樹狀歸約，只做到剩下 32 個 (一個 warp) 為止
+    if (BlockSize >= 1024) { if (tid < 512) sdata[tid] += sdata[tid + 512]; __syncthreads(); }
+    if (BlockSize >= 512)  { if (tid < 256) sdata[tid] += sdata[tid + 256]; __syncthreads(); }
+    if (BlockSize >= 256)  { if (tid < 128) sdata[tid] += sdata[tid + 128]; __syncthreads(); }
+    if (BlockSize >= 128)  { if (tid < 64)  sdata[tid] += sdata[tid + 64];  __syncthreads(); }
+
+    // 最後 32 個執行緒改用 shuffle，不再碰 shared memory
+    float val = 0.0f;
+    if (tid < 32) {
+        val = sdata[tid] + sdata[tid + 32];   // 先把 64 個元素合併成 32 個
+        val = warp_reduce_shfl(val);
+    }
+
+    if (tid == 0) atomicAdd(result, val);
+}
+
+// A, B, result are device pointers
+extern "C" void solve(const float* A, const float* B, float* result, int N) {
+    cudaMemset(result, 0, sizeof(float));
+    size_t GridSize = (N + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+    dot_product<THREADS_PER_BLOCK><<<GridSize, THREADS_PER_BLOCK>>>(A, B, result, N);
+}
+```
+
+Softmax
+```cpp
+
+```
