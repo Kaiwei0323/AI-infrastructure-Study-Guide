@@ -63,6 +63,32 @@ Old model (RNN + Encoder / Decoder) drawback: Process tokens serially, and the o
 
 ```
 Attention(Q, K, V) = softmax(Q Kᵀ / √d_k) V
+Assume: E[q_i] = 0, E[k_i] = 0, Var(q_i) = 1, Var(k_i) = 1
+Step 1 — Find E[q_i²] and E[k_i²]
+    Var(q_i) = E[q_i²] − (E[q_i])²
+    1        = E[q_i²] − 0²
+    E[q_i²]  = 1
+    E[k_i²]  = 1
+Step 2 — Show E[q_i · k_i] = 0
+    q_i and k_i are independent, so E[XY] = E[X]·E[Y]
+    E[q_i·k_i] = E[q_i] · E[k_i] = 0 × 0 = 0
+Step 3 — Find Var(q_i · k_i)
+    Var(q_i·k_i) = E[(q_i·k_i)²] − (E[q_i·k_i])²
+                 = E[q_i²·k_i²] − 0                (using Step 2)
+                 = E[q_i²] · E[k_i²]                (independence)
+                 = 1 × 1
+                 = 1
+Step 4 — Sum over all d_k dimensions
+    q·k = q_1k_1 + q_2k_2 + ... + q_(d_k)k_(d_k)
+    Since each term has variance 1, and all terms are independent,
+    variances just add up:
+    Var(q·k) = Var(q_1k_1) + Var(q_2k_2) + ... + Var(q_(d_k)k_(d_k))
+             = 1 + 1 + ... + 1        (d_k terms total)
+             = d_k
+Step 5 — Scale by 1/√d_k to bring variance back to 1
+    Var(q·k / √d_k) = (1/√d_k)² × Var(q·k)
+                     = (1/d_k) × d_k
+                     = 1
 ```
 
 - Single head = Input_embedding (`n x 512`) * (`wQ` (`512 x 512`) + `wK` (`512 x 512`) + `wV` (`512 x 512`)) = `n x 512`, Attention(Q, K, V) = output
@@ -204,7 +230,11 @@ Only the node with `ref_cnt == 0` (not in use) will be stored in this DDL.
 ### Discrete Prefill & decode
 
 - Prefill: Compute-intensive
+    - FlashAttention
+    - Chunked Prefill  
 - Decode: Memory-intensive
+    - PageAttention
+    - Continue batching 
 - Use a bridge to transfer KV cache between P/D
     - NVLink
     - RDMA
@@ -524,3 +554,57 @@ extern "C" void solve(const float* input, float* output, int N) {
     cudaDeviceSynchronize();
 }
 ```
+
+Batch Norm VS Layer Norm VS RMS Norm VS Deep Norm
+Batch Norm: Use batch or channel to do it but if batch is low or 1 perform bad but if batch is big like CNN perform well
+        特征1   特征2   特征3   特征4
+样本1    0.5     1.2    -0.3    2.1
+样本2    0.8     0.9    -0.1    1.8
+样本3    0.3     1.5    -0.5    2.3
+样本4    0.6     1.1    -0.2    2.0
+        ↓↓↓↓
+       算这一列的
+       均值和方差
+    x̂ = (x − μ_batch) / √(σ²_batch + ε)
+    y = γx̂ + β
+
+Layer Norm: 
+make μ = 0, σ² = 1, then use γ to scale and β to shift    
+        特征1   特征2   特征3   特征4
+样本1 → 0.5     1.2    -0.3    2.1   → 算这一行的均值方差
+样本2 → 0.8     0.9    -0.1    1.8   → 算这一行的均值方差
+样本3 → 0.3     1.5    -0.5    2.3   → 算这一行的均值方差
+
+    x̂ = (x − μ_layer) / √(σ²_layer + ε)
+    y = γx̂ + β
+
+RMS Norm: trim the mean calculation on Layer Norm only divided by RMS (root-mean-square) and no β cuz will not force μ = 0
+    x̂ = x / √((1/n)·Σxᵢ² + ε)
+    y = γx̂
+
+Deep Norm: 修复Post-LN在超深层数(1000+)下不稳定的问题
+           做法:放大残差连接(乘α,α>1) + 缩小子层初始化(乘β)
+           让梯度/更新幅度不管多深都能保持可控
+
+    x_{l+1} = LN(α · x_l + G_l(x_l, θ_l))
+
+    α  : 大于1的常数,根据深度(编码器N层/解码器M层)提前算好,不是学出来的
+    G_l: 子层(注意力 或 前馈网络FFN)
+    β  : 子层权重的初始化缩小因子(初始值比正常小)
+    LN : 还是标准LayerNorm(跟前面Layer Norm那节公式一样)
+
+    Post-LN:  x_{l+1} = LN(x_l + G_l(x_l))         → 效果好,但深了不稳定
+    Pre-LN:   x_{l+1} = x_l + G_l(LN(x_l))         → 稳定,但"有效深度"变浅
+    DeepNorm: Post-LN + α(放大残差) + β(缩小初始化) → 效果接近Post-LN,稳定性接近甚至超过Pre-LN
+
+Why make 𝛼 (residual) BIGGER
+- the old, already-accumulated signal should dominate; each new layer's fresh contribution should only be a small addition relative to it.
+Why make β (weight init) SMALLER
+- you're making start out quiet/small — so even before you multiply the residual by α, the "new contribution" isn't overwhelming to begin with.
+Total signal magnitude must stay bounded as you stack many layers.
+
+### Profiling
+Nsight System
+- Profile the whole system timeline from CPU, CUDA, API, cudaMemcpy, Kernel launch, GPU idle gap, overlap
+Nsight compute
+- Microscope on one kernel from occupancy, DRAM %, warp stalls, registers, source lines (map GPU performance to each line, see which line cause memory traffic / stall / instruction), roofline (memory bound or compute bound, try to push from memory bound (GPU still got idle computing power to compute bound (might need to upgrade hardware)))
