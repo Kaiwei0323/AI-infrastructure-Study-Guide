@@ -62,7 +62,12 @@ Old model (RNN + Encoder / Decoder) drawback: Process tokens serially, and the o
 - V: Actual meaning
 
 ```
+Standard SDPA (Scaled Dot-Product Attention):
 Attention(Q, K, V) = softmax(Q Kᵀ / √d_k) V
+Causal SDPA:
+Attention(Q, K, V) = softmax(Q Kᵀ / √d_k + M) V
+- M is a mask matrix added to attention scores that sets future position entries to -∞
+
 Assume: E[q_i] = 0, E[k_i] = 0, Var(q_i) = 1, Var(k_i) = 1
 Step 1 — Find E[q_i²] and E[k_i²]
     Var(q_i) = E[q_i²] − (E[q_i])²
@@ -100,7 +105,7 @@ Step 5 — Scale by 1/√d_k to bring variance back to 1
 | | Q heads | KV heads |
 | --- | --- | --- |
 | MHA | 8 | 8 |
-| GQA | 32 | 8 (Llama 3 8B) |
+| GQA (Group Query Attention) | 32 | 8 (Llama 3 8B) |
 | MQA | many | 1 |
 
 - Multiple Q heads can share one KV head: Q is "how I look up", K/V is the cached content. KV cache size uses `num_kv_heads`, not Q heads.
@@ -226,6 +231,22 @@ Only the node with `ref_cnt == 0` (not in use) will be stored in this DDL.
 - 2 queues (one waiting queue, one running queue)
 - dynamic control (max request num & token budget)
 - Chunked prefill and set a long prefill token threshold -> Split long tokens on prefill into small pieces to prevent a long prefill from preempting other decode
+
+### varlen/packed attention
+- Solve the padding add to prefill: padding will store in matrix and waste computing power
+seq1: [t1 t2 t3 t4 t5]
+seq2: [t1 t2 t3]
+seq3: [t1 t2 t3 t4 t5 t6 t7 t8]
+=>
+seq1: [PAD PAD PAD t1 t2 t3 t4 t5]
+seq2: [PAD PAD PAD PAD PAD t1 t2 t3]
+seq3: [t1 t2 t3 t4 t5 t6 t7 t8]
+Packed:
+packed: [t1 t2 t3 t4 t5 | t1 t2 t3 | t1 t2 t3 t4 t5 t6 t7 t8]
+              seq1            seq2                seq3
+lengths:    [5, 3, 8]
+cu_seqlens: [0, 5, 8, 16]
+positions: [0 1 2 3 4 | 0 1 2 | 0 1 2 3 4 5 6 7] -> RoPE -> add to Q K vector
 
 ### Discrete Prefill & decode
 
