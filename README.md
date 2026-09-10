@@ -41,6 +41,8 @@
 
 ## Self Attention
 
+<img width="994" height="1286" alt="image" src="https://github.com/user-attachments/assets/7fcf8541-8cad-48b6-9e16-3f7f5155f2f0" />
+
 ### Why we need self-attention?
 
 Old model (RNN + Encoder / Decoder) drawback: Process tokens serially, and the old context will be forgotten and the new context will have more weight.
