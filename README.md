@@ -54,7 +54,10 @@ Old model (RNN + Encoder / Decoder) drawback: Process tokens serially, and the o
 
 `Input -> Embedding -> Multi-head attention`
 
-- Input_embedding = text embedding + text position embedding (`n x 512`)
+- Input_embedding
+    - Absolute PE: text embedding + text position embedding (`n x 512`)
+    - RoPE: text embedding
+        -  
 - Multi-head attention: `wQ + wK + wV` (`512 x 512`)
 
 ### Q, K, V
