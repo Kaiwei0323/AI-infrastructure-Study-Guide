@@ -671,3 +671,7 @@ all_reduce SUM:
 + [79, 86, 93, 100]
 = [90, 100, 110, 120]
 ```
+
+Token -> Embedding -> [Norm -> Attention -> + Residual -> Norm -> MLP -> + Residual] x N -> Final Norm -> LM Head -> Logits -> softmax -> output
+MLP: X -> Column Parallel -> SwiGLU -> Row Parallel -> All-Reduce -> Output
+
