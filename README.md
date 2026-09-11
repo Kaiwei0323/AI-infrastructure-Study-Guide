@@ -639,4 +639,35 @@ Nsight compute
 - Microscope on one kernel from occupancy, DRAM %, warp stalls, registers, source lines (map GPU performance to each line, see which line cause memory traffic / stall / instruction), roofline (memory bound or compute bound, try to push from memory bound (GPU still got idle computing power to compute bound (might need to upgrade hardware)))
 
 ### Tensor Parallel
-- Column Parallel / Row Parallel: Shard weight, QKV, Token Embedding across GPUs, replica: RoPE, RMS, Layer Norms. 
+- Column Parallel / Row Parallel: Shard weight, QKV, Token Embedding across GPUs, replica: RoPE, RMS, Layer Norms.
+- Column Parallel:
+```
+X = [1, 2, 3, 4] (1, 4)
+
+W0 (GPU0)              W1 (GPU1)
+| 1   2 |              | 3   4 |
+| 5   6 |              | 7   8 |
+| 9  10 |              |11  12 |
+|13  14 |              |15  16 |
+(4, 2)                 (4, 2)
+GPU0:  Y0 = [1,2,3,4] @ W0 = [90, 100]
+GPU1:  Y1 = [1,2,3,4] @ W1 = [110, 120]
+output: [90, 100, 110, 120]
+```
+- Row Parallel
+```
+X0 = [1, 2]            X1 = [3, 4]
+
+W0 (GPU0)              W1 (GPU1)
+| 1   2   3   4 |      | 9  10  11  12 |
+| 5   6   7   8 |      |13  14  15  16 |
+(2, 4)                 (2, 4)
+
+GPU0:  Y0 = [1, 2] @ W0 = [11, 14, 17, 20]
+GPU1:  Y1 = [3, 4] @ W1 = [79, 86, 93, 100]
+
+all_reduce SUM:
+  [11, 14, 17,  20]
++ [79, 86, 93, 100]
+= [90, 100, 110, 120]
+```
