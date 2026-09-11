@@ -190,23 +190,23 @@ for (int d = 0; d < head_dim; d++) {
 - Number of assigned blocks = `ceil(prompt / block_size)`
 - Request A : `[block A, block B, block C]`
 - Block prefix hashing:
+    - `BlockA = [token1, token2, token3]`
+    - `BlockA = [token4, token5, token6]`
+    - `BlockA = [token7, token8, token9]`
     - `BlockA_hash: Hash(BlockA)`
     - `BlockB_hash: Hash(BlockA_hash + BlockB)`
     - `BlockC_hash: Hash(BlockB_hash + BlockC)`
     - ...
- - Prefix tree:
-    - `BlockB.parent = BlockA`
-    - `BlockC.parent = BlockB`
-    - `BlockD.parent = BlockC`
-    - ...
 - LRU eviction policy
+    - Free block (ref_cnt == 0) will be in double linkedlist
+    - Used block will be in Request A : `[block A, block B, block C]`, block A.ref_cnt = 1, block B.ref_cnt = 1, block C.ref_cnt = 1, annd all three block will be removed from double linkedlist.  
 
 ```cpp
 unordered_map<block_hash, KVCacheBlockNode*> mp;
 class KVCacheBlockNode {
 public:
     int block_id;
-    string block_hash;
+    bytes SHA-256(block_hash);
     int ref_cnt;
     KVCacheBlockNode* next;
     KVCacheBlockNode* prev;
