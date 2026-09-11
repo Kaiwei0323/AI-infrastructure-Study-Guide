@@ -264,6 +264,7 @@ positions: [0 1 2 3 4 | 0 1 2 | 0 1 2 3 4 5 6 7] -> RoPE -> add to Q K vector
     - PageAttention
     - Continue batching 
 - Use a bridge to transfer KV cache between P/D
+    - NCCL 
     - NVLink
     - RDMA
     - NXIL + TCP fallback
