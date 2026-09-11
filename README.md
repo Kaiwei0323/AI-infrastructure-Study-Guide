@@ -236,7 +236,7 @@ Only the node with `ref_cnt == 0` (not in use) will be stored in this DDL.
 
 - Request (Computed tokens, Total tokens that need to be computed)
 - 2 queues (one waiting queue (prefill), one running queue (decode)) (deque)
-- dynamic control (max request num & token budget)
+- fix cap max_num_seqs = 256
 - Chunked prefill and set a long prefill token threshold -> Split long tokens on prefill into small pieces to prevent a long prefill from preempting other decode
 
 ### varlen/packed attention
