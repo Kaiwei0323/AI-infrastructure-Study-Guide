@@ -637,3 +637,6 @@ Nsight System
 - Profile the whole system timeline from CPU, CUDA, API, cudaMemcpy, Kernel launch, GPU idle gap, overlap
 Nsight compute
 - Microscope on one kernel from occupancy, DRAM %, warp stalls, registers, source lines (map GPU performance to each line, see which line cause memory traffic / stall / instruction), roofline (memory bound or compute bound, try to push from memory bound (GPU still got idle computing power to compute bound (might need to upgrade hardware)))
+
+### Tensor Parallel
+- Column Parallel / Row Parallel: Shard weight, QKV, Token Embedding across GPUs, replica: RoPE, RMS, Layer Norms. 
