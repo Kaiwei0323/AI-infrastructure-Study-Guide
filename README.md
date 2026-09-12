@@ -199,7 +199,14 @@ for (int d = 0; d < head_dim; d++) {
     - ...
 - LRU eviction policy
     - Free block (ref_cnt == 0) will be in double linkedlist
-    - Used block will be in Request A : `[block A, block B, block C]`, block A.ref_cnt = 1, block B.ref_cnt = 1, block C.ref_cnt = 1, annd all three block will be removed from double linkedlist.  
+    - Used block will be in Request A : `[block A, block B, block C]`, block A.ref_cnt = 1, block B.ref_cnt = 1, block C.ref_cnt = 1, annd all three block will be removed from double linkedlist.
+ 
+- Request
+    - Token ids: [Token1, Token2, Token3, Token4, Token5, Token6]
+    - Block Table: [Physical Block1, Physical Block2, Physical Block3]
+    - Status: RUNNING | WAITING | FINISHED
+    - seqlens_k = 6
+    - seqlens_q = 2, if [Token1 - Tooken4] cached, only need to calculate [Token5, Token6]  
 
 ```cpp
 unordered_map<block_hash, KVCacheBlockNode*> mp;
@@ -672,6 +679,6 @@ all_reduce SUM:
 = [90, 100, 110, 120]
 ```
 
-Token -> Embedding -> [Norm -> Attention -> + Residual -> Norm -> MLP -> + Residual] x N -> Final Norm -> LM Head -> Logits -> softmax -> output
+Token -> Embedding -> [Norm -> Attention -> + Residual -> Norm -> MLP -> + Residual] x N -> Final Norm -> LM Head -> Logits -> softmax -> sampling (pick index by proability with temperature) -> output (next token)
 MLP: X -> Column Parallel -> SwiGLU -> Row Parallel -> All-Reduce -> Output
 
