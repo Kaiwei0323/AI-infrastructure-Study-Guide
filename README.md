@@ -680,5 +680,6 @@ all_reduce SUM:
 ```
 
 Token -> Embedding -> [Norm -> Attention -> + Residual -> Norm -> MLP -> + Residual] x N -> Final Norm -> LM Head -> Logits -> softmax -> sampling (pick index by proability with temperature) -> output (next token)
+FFN:
 MLP: X -> Column Parallel -> SwiGLU (SiluAndMul) -> Row Parallel -> All-Reduce -> Output
 
