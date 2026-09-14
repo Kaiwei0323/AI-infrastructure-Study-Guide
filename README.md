@@ -130,6 +130,12 @@ Step 5 — Scale by 1/√d_k to bring variance back to 1
 - MoE vs Non-MoE
     - MoE: EP (Expert Parallelism)
     - Non-MoE: TP (Tensor Parallelism)
+ 
+max_num_batched_tokens: The max token length for a single batch 
+max_model_len: The max token length for a single request
+
+Without chunked prefill: max_num_batched_tokens ≥ max_model_len
+Chunked prefill can input partial prefill to make the batched token only process partial prefill
 
 ## Model Metrics
 
@@ -236,7 +242,7 @@ Only the node with `ref_cnt == 0` (not in use) will be stored in this DDL.
 
 - if KV cache is evicted, it will go to other storage by hierarchy
 - VRAM -> System RAM -> NVMe -> S3
-- Use timing: recompute is expensive (big model or RAG (long prompt))
+- Use timing: recompute is expensive (big  or RAG (long prompt))
 - Each tier keeps its own LRU DDL
 
 ### Continuous batching
