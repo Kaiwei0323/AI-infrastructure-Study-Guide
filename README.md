@@ -155,6 +155,8 @@ Chunked prefill can input partial prefill to make the batched token only process
 - Available KV cache memory = `90% x total memory - model_weights - activation memory`
 - Num of blocks = `Available KV cache memory ÷ Block Size`
 
+The block size should be multiple of kernel tile, for example tile in attention kernel is 16, block size (128 x 16) should be 16 multiple
+
 #### CUDA Kernel Optimization
 
 1. logical block maps to a physical block, calculate KV cache and write into physical memory
