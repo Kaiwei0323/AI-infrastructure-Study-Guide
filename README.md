@@ -269,6 +269,24 @@ packed: [t1 t2 t3 t4 t5 | t1 t2 t3 | t1 t2 t3 t4 t5 t6 t7 t8]
 lengths:    [5, 3, 8]
 cu_seqlens: [0, 5, 8, 16]
 positions: [0 1 2 3 4 | 0 1 2 | 0 1 2 3 4 5 6 7] -> RoPE -> add to Q K vector
+with the positions can know the bound when calculate Q@K^T, mask out all other block
+如果对21个token做完整的Q@K^T，会得到21×21矩阵：
+
+        A A B B B B B B B C C C C C C C C C C C C
+      ┌───────────────────────────────────────────┐
+   A  │ ■ ■ · · · · · · · · · · · · · · · · · · · │  ← A只该看到A自己
+   A  │ ■ ■ · · · · · · · · · · · · · · · · · · · │
+      ├───────────────────────────────────────────┤
+   B  │ · · ■ ■ ■ ■ ■ ■ ■ · · · · · · · · · · · · │  ← B只该看到B自己
+   B  │ · · ■ ■ ■ ■ ■ ■ ■ · · · · · · · · · · · · │
+   ...│ · · ■ ■ ■ ■ ■ ■ ■ · · · · · · · · · · · · │
+      ├───────────────────────────────────────────┤
+   C  │ · · · · · · · · · ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ │  ← C只该看到C自己
+   ...│ · · · · · · · · · ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ │
+      └───────────────────────────────────────────┘
+
+■ = 需要计算的位置（block-diagonal，对角线上的方块）
+· = 不需要计算的位置（跨序列，直接跳过）
 
 ### Discrete Prefill & decode
 
@@ -654,7 +672,7 @@ Nsight compute
 - Microscope on one kernel from occupancy, DRAM %, warp stalls, registers, source lines (map GPU performance to each line, see which line cause memory traffic / stall / instruction), roofline (memory bound or compute bound, try to push from memory bound (GPU still got idle computing power to compute bound (might need to upgrade hardware)))
 
 ### Tensor Parallel
-- Column Parallel / Row Parallel: Shard weight, QKV, Token Embedding across GPUs, replica: RoPE, RMS, Layer Norms.
+- Column Parallel / Row Parallel: Shard weight, QKV, Token Embedding, LM head across GPUs, replica: RoPE, RMS, Layer Norms.
 - Column Parallel:
 ```
 X = [1, 2, 3, 4] (1, 4)
@@ -687,7 +705,50 @@ all_reduce SUM:
 = [90, 100, 110, 120]
 ```
 
-Token -> Embedding -> [Norm -> Attention -> + Residual -> Norm -> MLP -> + Residual] x N -> Final Norm -> LM Head -> Logits -> softmax -> sampling (pick index by proability with temperature) -> output (next token)
+Tokenizer -> Embedding -> [Norm -> Attention -> + Residual -> Norm -> MLP -> + Residual] x N -> Final Norm -> LM Head -> Logits -> softmax -> sampling (pick index by proability with temperature) -> output (next token)
 FFN:
 MLP: X -> Column Parallel -> SwiGLU (SiluAndMul) -> Row Parallel -> All-Reduce -> Output
 
+RoPE in Attention layer
+Attention 内部展开:
+                                          
+  输入 hidden_states
+        ↓
+  Q = hidden @ W_Q    (线性投影得到Query)
+  K = hidden @ W_K    (线性投影得到Key)
+  V = hidden @ W_V    (线性投影得到Value)
+        ↓
+  【RoPE 在这里：对 Q 和 K 做旋转位置编码】
+  Q_rotated = RoPE(Q, position)
+  K_rotated = RoPE(K, position)
+  ← 注意：V 不需要做RoPE，只有Q和K
+        ↓
+  scores = Q_rotated @ K_rotated^T / √d_k + Mask
+        ↓
+  attn_weights = softmax(scores)
+        ↓
+  output = attn_weights @ V
+        ↓
+  output = output @ W_O   (输出投影)
+
+VocabParallelEmbedding
+Turn tokenized token to token vector
+[V, D] will be shard (row parallel) cut based on V across GPUs and all_reduce()
+假设 tp_size=2
+
+卡0存: W[:, 0:2048]    形状 = [150000, 2048]
+卡1存: W[:, 2048:4096]  形状 = [150000, 2048]
+mask：先判断这个id归不归自己 → 归自己的正常查，不归自己的强制置0 
+每张卡算 自己那一块词表的 embedding，其他位置为 0，加起来 就是完整 embedding。
+
+输入: [今, 天, 天, 气]
+        ↓ 经过所有Transformer层
+每个位置都产出一个hidden state:
+  位置0(今) → h0
+  位置1(天) → h1
+  位置2(天) → h2
+  位置3(气) → h3  ← 最后一个位置
+
+h3代表"模型看完整句'今天天气'之后"的理解状态
+
+logits: gather+cat
