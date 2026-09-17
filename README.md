@@ -50,6 +50,8 @@ Old model (RNN + Encoder / Decoder) drawback: Process tokens serially, and the o
 - Training: output can be processed in parallel
 - Inference: output one at a time
 
+<img width="2720" height="3520" alt="pre_norm_rmsnorm_rope_swiglu_flow_en" src="https://github.com/user-attachments/assets/d8a79a30-280a-4d34-8d6d-ff968244703e" />
+
 ### Encoding
 
 `Input -> Embedding -> Multi-head attention`
