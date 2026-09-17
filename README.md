@@ -144,6 +144,55 @@ Chunked prefill can input partial prefill to make the batched token only process
 
 ## VLLM backend (Single node)
 
+### Embedding
+- [V, d]: map vocab to 1d vector
+
+### LMhead
+- can transform Embedding vector [V, d] to [d, V]
+- can map output 1d vector to vocab
+
+### RoPE (Rotary Position Embedding)
+- Apply on Q K multiplication to embed token relative position
+- Cache cos_sin_cache, pos = [0, 1, 2, ..., max_position]
+
+### Prepare prefill
+- cu_seqlens_q (Cumulative sequence lengths): store each sequence start / end index
+```
+seq1: [t1 t2 t3 t4 t5]
+seq2: [t1 t2 t3]
+seq3: [t1 t2 t3 t4 t5 t6 t7 t8]
+
+lengths:    [5, 3, 8]
+cu_seqlens: [0, 5, 8, 16]
+```
+- PageAttention
+
+### Prefill
+- Calculate each layer Q / K / V and cache KV cache and generate first token (TTFT)
+- Compute-bound
+- FlashAttention
+    - tiling Q / K / V matrix multiplication on SRAM + online Softmax 
+
+### Decode
+- Start from the generated last token, each step generate 1 new token, read KV cache, calulate current attention and generate new token and append KV cache.
+- Memory-bound
+- self-attention (causal)
+
+### Prefill caching
+
+## VLLM backend (Multi nodes)
+- Embedding
+    - Row Parallel -> all_reduce() (only calculate each own vocab shards other vocab mask out to 0)
+  ```
+tp_size=2
+
+GPU0: W[:, 0:2048]    shape = [150000, 2048]
+GPU1: W[:, 2048:4096] shape = [150000, 2048]
+
+mask：determine the id is on the GPU -> if yes, calculate it，if no set it to 0 
+all_reduce() all GPUS' embedding to be the final output
+  ```
+
 ### PageAttention
 
 - a logical block table maps a logical block to a physical block
@@ -643,6 +692,12 @@ make μ = 0, σ² = 1, then use γ to scale and β to shift
 RMS Norm: trim the mean calculation on Layer Norm only divided by RMS (root-mean-square) and no β cuz will not force μ = 0
     x̂ = x / √((1/n)·Σxᵢ² + ε)
     y = γx̂
+
+```
+y = x * torch.rsqrt(v + eps)
+```
+
+use fp32
 
 Deep Norm: 修复Post-LN在超深层数(1000+)下不稳定的问题
            做法:放大残差连接(乘α,α>1) + 缩小子层初始化(乘β)
