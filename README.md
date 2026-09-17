@@ -70,6 +70,8 @@ Old model (RNN + Encoder / Decoder) drawback: Process tokens serially, and the o
 - K: Yes or No
 - V: Actual meaning
 
+QKV fusion: merge QKV * x instead of launch 3 kernel Qx, Kx, Vx
+
 ```
 Standard SDPA (Scaled Dot-Product Attention):
 Attention(Q, K, V) = softmax(Q Kᵀ / √d_k) V
@@ -194,6 +196,7 @@ GPU1: W[:, 2048:4096] shape = [150000, 2048]
 mask：determine the id is on the GPU -> if yes, calculate it，if no set it to 0 
 all_reduce() all GPUS' embedding to be the final output
   ```
+num_heads (Q head), num_kv_heads (KV head) will evenly shard across GPUs
 
 ### PageAttention
 
