@@ -140,6 +140,7 @@ max_model_len: The max token length for a single request
 
 Without chunked prefill: max_num_batched_tokens ≥ max_model_len
 Chunked prefill can input partial prefill to make the batched token only process partial prefill
+chunked prefill is casual so need to wait for previous chunk to be calculated
 
 ## Model Metrics
 
@@ -175,12 +176,14 @@ cu_seqlens: [0, 5, 8, 16]
 - Calculate each layer Q / K / V and cache KV cache and generate first token (TTFT)
 - Compute-bound
 - FlashAttention
-    - tiling Q / K / V matrix multiplication on SRAM + online Softmax 
+    - tiling Q / K / V matrix multiplication on SRAM + online Softmax
+- num_cached_token, block_table
 
 ### Decode
 - Start from the generated last token, each step generate 1 new token, read KV cache, calulate current attention and generate new token and append KV cache.
 - Memory-bound
 - self-attention (causal)
+- last token, block_table[-1], last_block_num_tokens
 
 ### Prefill caching
 
@@ -268,7 +271,9 @@ for (int d = 0; d < head_dim; d++) {
     - Block Table: [Physical Block1, Physical Block2, Physical Block3]
     - Status: RUNNING | WAITING | FINISHED
     - seqlens_k = 6
-    - seqlens_q = 2, if [Token1 - Tooken4] cached, only need to calculate [Token5, Token6]  
+    - seqlens_q = 2, if [Token1 - Tooken4] cached, only need to calculate [Token5, Token6]
+ 
+  if decode want to allocate more block: Preempt release other sequence all block and append left to waiting queue to make sure it will be run next (FIFO)
 
 ```cpp
 unordered_map<block_hash, KVCacheBlockNode*> mp;
@@ -320,6 +325,7 @@ seq3: [t1 t2 t3 t4 t5 t6 t7 t8]
 Packed:
 packed: [t1 t2 t3 t4 t5 | t1 t2 t3 | t1 t2 t3 t4 t5 t6 t7 t8]
               seq1            seq2                seq3
+prefill continuous batching
 lengths:    [5, 3, 8]
 cu_seqlens: [0, 5, 8, 16]
 positions: [0 1 2 3 4 | 0 1 2 | 0 1 2 3 4 5 6 7] -> RoPE -> add to Q K vector
